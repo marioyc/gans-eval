@@ -79,19 +79,23 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 
     visualization_step = 1000
 
-    for i in tqdm(range(20000)):
+    for i in tqdm(range(100000)):
         _, summary = sess.run([discriminator_train, summary_d_loss])
         writer.add_summary(summary, i)
         _, summary = sess.run([generator_train, summary_g_loss])
         writer.add_summary(summary, i)
 
         if (i + 1) % visualization_step == 0:
-            x, y = sess.run([samples, data])
-            fig = plt.figure(figsize=(5,5))
-            plt.scatter(x[:, 0], x[:, 1], edgecolor='none')
-            plt.scatter(y[:, 0], y[:, 1], c='g', edgecolor='none')
-            plt.axis('off')
-            fig.savefig(output_path + '/{}.png'.format(i + 1), bbox_inches='tight')
+            fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
+            axes[0].set_title('Samples')
+            axes[1].set_title('Data')
+
+            for j in range(20):
+                x, y = sess.run([samples, data])
+                axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
+                axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
+
+            fig.savefig(output_path + '/{0:06d}.png'.format(i + 1))
             plt.close(fig)
 
 if __name__ == '__main__':
