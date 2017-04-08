@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -20,22 +19,15 @@ def build_model(params):
     discriminator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'discriminator')
     generator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'generator')
 
-    discriminator_loss = tf.reduce_mean(
-        tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(data_score), logits=data_score)
-        + tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
-
-    if params['modified_objective']:
-        generator_loss = -tf.reduce_mean(tf.nn.sigmoid(samples_score))
-    else:
-        generator_loss = -tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
+    discriminator_loss = -tf.reduce_mean(data_score - samples_score)
+    generator_loss = -tf.reduce_mean(samples_score)
 
     return discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss
 
 def train(discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss, dirname='gan'):
     sess = tf.Session()
 
-    optimizer = tf.train.AdamOptimizer()
+    optimizer = tf.train.RMSPropOptimizer(learning_rate=1e-4)
     discriminator_train = optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
     generator_train = optimizer.minimize(generator_loss, var_list=generator_vars)
 
@@ -53,12 +45,15 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 
     writer = tf.summary.FileWriter(logs_path, sess.graph)
 
+    clip_discriminator_vars_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in discriminator_vars]
     sess.run(tf.global_variables_initializer())
 
     visualization_step = 1000
 
     for i in tqdm(range(100000)):
-        _, summary = sess.run([discriminator_train, summary_d_loss])
+        for j in range(5):
+            _, summary = sess.run([discriminator_train, summary_d_loss])
+            sess.run(clip_discriminator_vars_op)
         writer.add_summary(summary, i)
 
         _, summary = sess.run([generator_train, summary_g_loss])
@@ -95,9 +90,7 @@ if __name__ == '__main__':
         'modified_objective': True,
     }
 
-    dirname = 'gan'
-    if params['modified_objective']:
-        dirname = 'modified-gan'
+    dirname = 'wgan'
 
     discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss = build_model(params)
     train(discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss, dirname)
