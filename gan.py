@@ -1,7 +1,5 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 from tqdm import tqdm
 
@@ -66,6 +64,7 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 
         if (i + 1) % visualization_step == 0:
             fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
+            fig.suptitle(dirname)
             axes[0].set_title('Samples')
             axes[1].set_title('Data')
 
@@ -80,24 +79,26 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 if __name__ == '__main__':
     params = {
         'n_mixture': 8,
-        'batch_size': 512,
+        'batch_size': 64,
         'z_dim': 10,
         'std': 0.01,
         'radius': 1,
         'generator': {
             'n_layers': 3,
             'n_hidden': 128,
+            'activation_fn': tf.nn.relu,
         },
         'discriminator': {
             'n_layers': 2,
             'n_hidden': 128,
+            'activation_fn': tf.nn.relu,
         },
         'modified_objective': True,
     }
 
     dirname = 'gan'
     if params['modified_objective']:
-        dirname = 'modified-gan'
+        dirname = 'gan-modified-objective'
 
     discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss = build_model(params)
     train(discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss, dirname)

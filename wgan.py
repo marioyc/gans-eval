@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 from tqdm import tqdm
 
@@ -27,7 +26,7 @@ def build_model(params):
 def train(discriminator_vars, generator_vars, data, samples, discriminator_loss, generator_loss, dirname='gan'):
     sess = tf.Session()
 
-    optimizer = tf.train.RMSPropOptimizer(learning_rate=1e-4)
+    optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
     discriminator_train = optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
     generator_train = optimizer.minimize(generator_loss, var_list=generator_vars)
 
@@ -61,6 +60,7 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 
         if (i + 1) % visualization_step == 0:
             fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
+            fig.suptitle(dirname)#, fontsize=16)
             axes[0].set_title('Samples')
             axes[1].set_title('Data')
 
@@ -75,17 +75,19 @@ def train(discriminator_vars, generator_vars, data, samples, discriminator_loss,
 if __name__ == '__main__':
     params = {
         'n_mixture': 8,
-        'batch_size': 512,
+        'batch_size': 64,
         'z_dim': 10,
         'std': 0.01,
         'radius': 1,
         'generator': {
             'n_layers': 3,
             'n_hidden': 128,
+            'activation_fn': tf.nn.relu,
         },
         'discriminator': {
             'n_layers': 2,
             'n_hidden': 128,
+            'activation_fn': tf.nn.relu,
         },
         'modified_objective': True,
     }
