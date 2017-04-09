@@ -23,9 +23,11 @@ def get_model_and_loss(params):
 def train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, dirname='gan'):
     sess = tf.Session()
 
-    optimizer = tf.train.AdamOptimizer()
-    discriminator_train = optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
-    generator_train = optimizer.minimize(generator_loss, var_list=generator_vars)
+    discriminator_optimizer = tf.train.AdamOptimizer()
+    generator_optimizer = tf.train.AdamOptimizer()
+
+    discriminator_train = discriminator_optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
+    generator_train = generator_optimizer.minimize(generator_loss, var_list=generator_vars)
 
     summary_d_loss = tf.summary.scalar('discriminator_loss', discriminator_loss)
     summary_g_loss = tf.summary.scalar('generator_loss', generator_loss)

@@ -3,20 +3,36 @@ import tensorflow as tf
 
 from tqdm import tqdm
 
-from common import build_model, sample_mixture_of_gaussians
+from common import build_model, sample_mixture_of_gaussians, discriminator
 
 def get_model_and_loss(params):
     data, data_score, z, samples, samples_score, discriminator_vars, generator_vars = build_model(params)
     discriminator_loss = -tf.reduce_mean(data_score - samples_score)
+
+    if params['gradient_penalty']:
+        e = tf.contrib.distributions.Uniform().sample([64, 1])
+        x = e * data + (1 - e) * samples
+        x_score = discriminator(x, **params['discriminator'], reuse=True)
+        gradients = tf.gradients(x_score, [x])[0]
+        gradients_l2 = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=1))
+        gradient_penalty = tf.reduce_mean((gradients_l2 - 1) ** 2)
+        discriminator_loss += 10 * gradient_penalty
+
     generator_loss = -tf.reduce_mean(samples_score)
     return discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss
 
-def train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, dirname='gan'):
+def train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, gp, dirname='wgan'):
     sess = tf.Session()
 
-    optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
-    discriminator_train = optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
-    generator_train = optimizer.minimize(generator_loss, var_list=generator_vars)
+    if gp:
+        discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+        generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+    else:
+        discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+        generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+
+    discriminator_train = discriminator_optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
+    generator_train = generator_optimizer.minimize(generator_loss, var_list=generator_vars)
 
     summary_d_loss = tf.summary.scalar('discriminator_loss', discriminator_loss)
     summary_g_loss = tf.summary.scalar('generator_loss', generator_loss)
@@ -35,9 +51,10 @@ def train(discriminator_vars, generator_vars, data, z, samples, discriminator_lo
     data_sampler = sample_mixture_of_gaussians(batch_size=params['batch_size'], **params['data'])
     z_sampler = tf.contrib.distributions.Normal(tf.zeros(params['z_dim']), tf.ones(params['z_dim'])).sample(params['batch_size'])
 
-    clip_discriminator_vars_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in discriminator_vars]
-    sess.run(tf.global_variables_initializer())
+    if not gp:
+        clip_discriminator_vars_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in discriminator_vars]
 
+    sess.run(tf.global_variables_initializer())
     visualization_step = 1000
 
     for i in tqdm(range(100000)):
@@ -45,7 +62,9 @@ def train(discriminator_vars, generator_vars, data, z, samples, discriminator_lo
             data_batch, z_batch = sess.run([data_sampler, z_sampler])
             _, summary = sess.run([discriminator_train, summary_d_loss],
                             feed_dict={data: data_batch, z: z_batch})
-            sess.run(clip_discriminator_vars_op)
+
+            if not gp:
+                sess.run(clip_discriminator_vars_op)
         writer.add_summary(summary, i)
 
         z_batch = sess.run(z_sampler)
@@ -87,9 +106,12 @@ if __name__ == '__main__':
             'n_hidden': 128,
             'activation_fn': tf.nn.relu,
         },
+        'gradient_penalty': True,
     }
 
     dirname = 'wgan'
+    if params['gradient_penalty']:
+        dirname = 'wgan-gradient-penalty'
 
     discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss = get_model_and_loss(params)
-    train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, dirname)
+    train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, params['gradient_penalty'], dirname)
