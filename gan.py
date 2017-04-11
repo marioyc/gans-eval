@@ -5,76 +5,80 @@ from tqdm import tqdm
 
 from common import build_model, sample_mixture_of_gaussians
 
-def get_model_and_loss(params):
-    data, data_score, z, samples, samples_score, discriminator_vars, generator_vars = build_model(params)
+class GAN:
+    def __init__(self, params):
+        self.data_params = params['data']
+        self.z_dim = params['z_dim']
 
-    discriminator_loss = tf.reduce_mean(
-        tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(data_score), logits=data_score)
-        + tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
+        self.data = tf.placeholder(dtype=tf.float32, shape=[None, 2])
+        self.z = tf.placeholder(dtype=tf.float32, shape=[None, self.z_dim])
+        self.data_score, self.samples, self.samples_score, self.discriminator_vars, self.generator_vars = build_model(self.data, self.z, params)
 
-    if params['modified_objective']:
-        generator_loss = -tf.reduce_mean(tf.nn.sigmoid(samples_score))
-    else:
-        generator_loss = -tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
+        self.discriminator_loss = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(self.data_score), logits=self.data_score)
+            + tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(self.samples_score), logits=self.samples_score))
 
-    return discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss
+        if params['modified_objective']:
+            self.generator_loss = -tf.reduce_mean(tf.nn.sigmoid(self.samples_score))
+        else:
+            self.generator_loss = -tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(self.samples_score), logits=self.samples_score))
 
-def train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, dirname='gan'):
-    sess = tf.Session()
+    def train(self, iterations=100000, batch_size=64,
+            visualization_step=1000, visualization_batches=20, dirname='gan'):
+        sess = tf.Session()
 
-    discriminator_optimizer = tf.train.AdamOptimizer()
-    generator_optimizer = tf.train.AdamOptimizer()
+        discriminator_optimizer = tf.train.AdamOptimizer()
+        generator_optimizer = tf.train.AdamOptimizer()
 
-    discriminator_train = discriminator_optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
-    generator_train = generator_optimizer.minimize(generator_loss, var_list=generator_vars)
+        discriminator_train = discriminator_optimizer.minimize(self.discriminator_loss, var_list=self.discriminator_vars)
+        generator_train = generator_optimizer.minimize(self.generator_loss, var_list=self.generator_vars)
 
-    summary_d_loss = tf.summary.scalar('discriminator_loss', discriminator_loss)
-    summary_g_loss = tf.summary.scalar('generator_loss', generator_loss)
+        summary_d_loss = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
+        summary_g_loss = tf.summary.scalar('generator_loss', self.generator_loss)
 
-    logs_path = 'logs/{}'.format(dirname)
-    output_path = 'output/{}'.format(dirname)
+        logs_path = 'logs/{}'.format(dirname)
+        output_path = 'output/{}'.format(dirname)
 
-    if tf.gfile.Exists(logs_path):
-        tf.gfile.DeleteRecursively(logs_path)
-    if tf.gfile.Exists(output_path):
-        tf.gfile.DeleteRecursively(output_path)
-    tf.gfile.MakeDirs(output_path)
+        if tf.gfile.Exists(logs_path):
+            tf.gfile.DeleteRecursively(logs_path)
+        if tf.gfile.Exists(output_path):
+            tf.gfile.DeleteRecursively(output_path)
+        tf.gfile.MakeDirs(output_path)
 
-    writer = tf.summary.FileWriter(logs_path, sess.graph)
+        writer = tf.summary.FileWriter(logs_path, sess.graph)
 
-    data_sampler = sample_mixture_of_gaussians(batch_size=params['batch_size'], **params['data'])
-    z_sampler = tf.contrib.distributions.Normal(tf.zeros(params['z_dim']), tf.ones(params['z_dim'])).sample(params['batch_size'])
+        data_sampler = sample_mixture_of_gaussians(batch_size=batch_size, **self.data_params)
+        z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim)).sample(batch_size)
 
-    sess.run(tf.global_variables_initializer())
+        sess.run(tf.global_variables_initializer())
 
-    visualization_step = 1000
+        for i in tqdm(range(iterations)):
+            data, z = sess.run([data_sampler, z_sampler])
+            _, summary = sess.run([discriminator_train, summary_d_loss],
+                            feed_dict={self.data: data, self.z: z})
+            writer.add_summary(summary, i)
 
-    for i in tqdm(range(100000)):
-        data_batch, z_batch = sess.run([data_sampler, z_sampler])
-        _, summary = sess.run([discriminator_train, summary_d_loss],
-                        feed_dict={data: data_batch, z: z_batch})
-        writer.add_summary(summary, i)
+            z = sess.run(z_sampler)
+            _, summary = sess.run([generator_train, summary_g_loss],
+                            feed_dict={self.z: z})
+            writer.add_summary(summary, i)
 
-        z_batch = sess.run(z_sampler)
-        _, summary = sess.run([generator_train, summary_g_loss],
-                        feed_dict={z: z_batch})
-        writer.add_summary(summary, i)
+            if (i + 1) % visualization_step == 0:
+                fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
+                fig.suptitle(dirname)
+                axes[0].set_title('Samples')
+                axes[1].set_title('Data')
 
-        if (i + 1) % visualization_step == 0:
-            fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
-            fig.suptitle(dirname)
-            axes[0].set_title('Samples')
-            axes[1].set_title('Data')
+                for j in range(visualization_batches):
+                    data, z = sess.run([data_sampler, z_sampler])
+                    x, y = sess.run([self.samples, self.data],
+                            feed_dict={self.data: data, self.z: z})
+                    axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
+                    axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
 
-            for j in range(20):
-                data_batch, z_batch = sess.run([data_sampler, z_sampler])
-                x, y = sess.run([samples, data], feed_dict={data: data_batch, z: z_batch})
-                axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
-                axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
-
-            fig.savefig(output_path + '/{0:06d}.png'.format(i + 1))
-            plt.close(fig)
+                fig.savefig(output_path + '/{0:06d}.png'.format(i + 1))
+                plt.close(fig)
 
 if __name__ == '__main__':
     params = {
@@ -102,5 +106,5 @@ if __name__ == '__main__':
     if params['modified_objective']:
         dirname = 'gan-modified-objective'
 
-    discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss = get_model_and_loss(params)
-    train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, dirname)
+    gan = GAN(params)
+    gan.train(dirname=dirname)

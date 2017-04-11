@@ -5,87 +5,94 @@ from tqdm import tqdm
 
 from common import build_model, sample_mixture_of_gaussians, discriminator
 
-def get_model_and_loss(params):
-    data, data_score, z, samples, samples_score, discriminator_vars, generator_vars = build_model(params)
-    discriminator_loss = -tf.reduce_mean(data_score - samples_score)
+class WGAN:
+    def __init__(self, params):
+        self.data_params = params['data']
+        self.z_dim = params['z_dim']
 
-    if params['gradient_penalty']:
-        e = tf.contrib.distributions.Uniform().sample([64, 1])
-        x = e * data + (1 - e) * samples
-        x_score = discriminator(x, **params['discriminator'], reuse=True)
-        gradients = tf.gradients(x_score, [x])[0]
-        gradients_l2 = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=1))
-        gradient_penalty = tf.reduce_mean((gradients_l2 - 1) ** 2)
-        discriminator_loss += 10 * gradient_penalty
+        self.data = tf.placeholder(dtype=tf.float32, shape=[None, 2])
+        self.z = tf.placeholder(dtype=tf.float32, shape=[None, self.z_dim])
+        self.data_score, self.samples, self.samples_score, self.discriminator_vars, self.generator_vars = build_model(self.data, self.z, params)
 
-    generator_loss = -tf.reduce_mean(samples_score)
-    return discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss
+        self.discriminator_loss = -tf.reduce_mean(self.data_score - self.samples_score)
+        self.gradient_penalty = params['gradient_penalty']
+        if params['gradient_penalty']:
+            e = tf.contrib.distributions.Uniform().sample([64, 1])
+            x = e * self.data + (1 - e) * self.samples
+            x_score = discriminator(x, **params['discriminator'], reuse=True)
+            gradients = tf.gradients(x_score, [x])[0]
+            gradients_l2 = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=1))
+            gradient_penalty = tf.reduce_mean((gradients_l2 - 1) ** 2)
+            self.discriminator_loss += 10 * gradient_penalty
 
-def train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, gp, dirname='wgan'):
-    sess = tf.Session()
+        self.generator_loss = -tf.reduce_mean(self.samples_score)
 
-    if gp:
-        discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
-        generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
-    else:
-        discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
-        generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+    def train(self, iterations=100000, discriminator_steps=5, batch_size=64,
+            visualization_step=1000, visualization_batches=20, dirname='wgan'):
+        sess = tf.Session()
 
-    discriminator_train = discriminator_optimizer.minimize(discriminator_loss, var_list=discriminator_vars)
-    generator_train = generator_optimizer.minimize(generator_loss, var_list=generator_vars)
+        if self.gradient_penalty:
+            discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+            generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+        else:
+            discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+            generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
 
-    summary_d_loss = tf.summary.scalar('discriminator_loss', discriminator_loss)
-    summary_g_loss = tf.summary.scalar('generator_loss', generator_loss)
+        discriminator_train = discriminator_optimizer.minimize(self.discriminator_loss, var_list=self.discriminator_vars)
+        generator_train = generator_optimizer.minimize(self.generator_loss, var_list=self.generator_vars)
 
-    logs_path = 'logs/{}'.format(dirname)
-    output_path = 'output/{}'.format(dirname)
+        summary_d_loss = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
+        summary_g_loss = tf.summary.scalar('generator_loss', self.generator_loss)
 
-    if tf.gfile.Exists(logs_path):
-        tf.gfile.DeleteRecursively(logs_path)
-    if tf.gfile.Exists(output_path):
-        tf.gfile.DeleteRecursively(output_path)
-    tf.gfile.MakeDirs(output_path)
+        logs_path = 'logs/{}'.format(dirname)
+        output_path = 'output/{}'.format(dirname)
 
-    writer = tf.summary.FileWriter(logs_path, sess.graph)
+        if tf.gfile.Exists(logs_path):
+            tf.gfile.DeleteRecursively(logs_path)
+        if tf.gfile.Exists(output_path):
+            tf.gfile.DeleteRecursively(output_path)
+        tf.gfile.MakeDirs(output_path)
 
-    data_sampler = sample_mixture_of_gaussians(batch_size=params['batch_size'], **params['data'])
-    z_sampler = tf.contrib.distributions.Normal(tf.zeros(params['z_dim']), tf.ones(params['z_dim'])).sample(params['batch_size'])
+        writer = tf.summary.FileWriter(logs_path, sess.graph)
 
-    if not gp:
-        clip_discriminator_vars_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in discriminator_vars]
+        data_sampler = sample_mixture_of_gaussians(batch_size=batch_size, **self.data_params)
+        z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim)).sample(batch_size)
 
-    sess.run(tf.global_variables_initializer())
-    visualization_step = 1000
+        if not self.gradient_penalty:
+            clip_discriminator_vars_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in discriminator_vars]
 
-    for i in tqdm(range(100000)):
-        for j in range(5):
-            data_batch, z_batch = sess.run([data_sampler, z_sampler])
-            _, summary = sess.run([discriminator_train, summary_d_loss],
-                            feed_dict={data: data_batch, z: z_batch})
+        sess.run(tf.global_variables_initializer())
 
-            if not gp:
-                sess.run(clip_discriminator_vars_op)
-        writer.add_summary(summary, i)
+        for i in tqdm(range(iterations)):
+            for j in range(discriminator_steps):
+                data, z = sess.run([data_sampler, z_sampler])
+                _, summary = sess.run([discriminator_train, summary_d_loss],
+                                feed_dict={self.data: data, self.z: z})
 
-        z_batch = sess.run(z_sampler)
-        _, summary = sess.run([generator_train, summary_g_loss],
-                        feed_dict={z: z_batch})
-        writer.add_summary(summary, i)
+                if not self.gradient_penalty:
+                    sess.run(clip_discriminator_vars_op)
+            writer.add_summary(summary, i)
 
-        if (i + 1) % visualization_step == 0:
-            fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
-            fig.suptitle(dirname)
-            axes[0].set_title('Samples')
-            axes[1].set_title('Data')
+            z = sess.run(z_sampler)
+            _, summary = sess.run([generator_train, summary_g_loss],
+                            feed_dict={self.z: z})
+            writer.add_summary(summary, i)
 
-            for j in range(20):
-                data_batch, z_batch = sess.run([data_sampler, z_sampler])
-                x, y = sess.run([samples, data], feed_dict={data: data_batch, z: z_batch})
-                axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
-                axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
+            if (i + 1) % visualization_step == 0:
+                fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
+                fig.suptitle(dirname)
+                axes[0].set_title('Samples')
+                axes[1].set_title('Data')
 
-            fig.savefig(output_path + '/{0:06d}.png'.format(i + 1))
-            plt.close(fig)
+                for j in range(visualization_batches):
+                    data, z = sess.run([data_sampler, z_sampler])
+                    x, y = sess.run([self.samples, self.data],
+                            feed_dict={self.data: data, self.z: z})
+                    axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
+                    axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
+
+                fig.savefig(output_path + '/{0:06d}.png'.format(i + 1))
+                plt.close(fig)
 
 if __name__ == '__main__':
     params = {
@@ -113,5 +120,5 @@ if __name__ == '__main__':
     if params['gradient_penalty']:
         dirname = 'wgan-gradient-penalty'
 
-    discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss = get_model_and_loss(params)
-    train(discriminator_vars, generator_vars, data, z, samples, discriminator_loss, generator_loss, params['gradient_penalty'], dirname)
+    wgan = WGAN(params)
+    wgan.train(dirname=dirname)
