@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-def sample_mixture_of_gaussians(batch_size=64, n_mixture=8, std=0.01, radius=1):
+def sample_mixture_of_gaussians(n_mixture=8, std=0.01, radius=1):
     angles = np.linspace(0, 2 * np.pi, n_mixture)
     x = radius * np.cos(angles)
     y = radius * np.sin(angles)
@@ -12,7 +12,7 @@ def sample_mixture_of_gaussians(batch_size=64, n_mixture=8, std=0.01, radius=1):
     for xi, yi in zip(x, y):
         components.append(tf.contrib.distributions.MultivariateNormalDiag([xi, yi], [std, std]))
     data = tf.contrib.distributions.Mixture(cat, components)
-    return data.sample(batch_size)
+    return data
 
 def discriminator(x, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu, reuse=False):
     with tf.variable_scope('discriminator', reuse=reuse):
