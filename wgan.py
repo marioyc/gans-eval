@@ -21,13 +21,13 @@ class WGAN(GAN):
         if params['gradient_penalty']:
             self.gradient_penalty = True
             self.name = 'WGAN gradient penalty'
-            e = tf.contrib.distributions.Uniform().sample([64, 1])
+            e = tf.contrib.distributions.Uniform().sample([tf.shape(self.data)[0], 1])
             x = e * self.data + (1 - e) * self.samples
             x_score = discriminator(x, **params['discriminator'], reuse=True)
             gradients = tf.gradients(x_score, [x])[0]
             gradients_l2 = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=1))
             gradient_penalty = tf.reduce_mean((gradients_l2 - 1) ** 2)
-            self.discriminator_loss += 10 * gradient_penalty
+            self.discriminator_loss += params['lambda'] * gradient_penalty
         else:
             self.gradient_penalty = False
             self.name = 'WGAN'
@@ -61,8 +61,8 @@ class WGAN(GAN):
 
 if __name__ == '__main__':
     params = {
-        'batch_size': 64,
-        'z_dim': 10,
+        'batch_size': 256,
+        'z_dim': 2,
         'data': {
             'n_mixture': 8,
             'std': 0.01,
@@ -70,15 +70,16 @@ if __name__ == '__main__':
         },
         'generator': {
             'n_layers': 3,
-            'n_hidden': 128,
+            'n_hidden': 512,
             'activation_fn': tf.nn.relu,
         },
         'discriminator': {
-            'n_layers': 2,
-            'n_hidden': 128,
+            'n_layers': 3,
+            'n_hidden': 512,
             'activation_fn': tf.nn.relu,
         },
         'gradient_penalty': True,
+        'lambda': 0.1,
     }
 
     wgan = WGAN(params)
