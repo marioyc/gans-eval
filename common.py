@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib.layers as layers
 import tensorflow.contrib.slim as slim
 
 def sample_mixture_of_gaussians(n_mixture=8, std=0.01, radius=1):
@@ -16,14 +17,24 @@ def sample_mixture_of_gaussians(n_mixture=8, std=0.01, radius=1):
 
 def discriminator(x, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu, reuse=False):
     with tf.variable_scope('discriminator', reuse=reuse):
-        h = slim.repeat(x, n_layers, slim.fully_connected, n_hidden, activation_fn=activation_fn)
-        logits = tf.contrib.layers.fully_connected(h, 1, activation_fn=None)
+        h = slim.repeat(x, n_layers, slim.fully_connected, n_hidden,
+                activation_fn=activation_fn,
+                weights_initializer=layers.variance_scaling_initializer(
+                    factor=2.0 * np.sqrt(3), mode='FAN_IN', uniform=True))
+        logits = layers.fully_connected(h, 1, activation_fn=None,
+                    weights_initializer=layers.variance_scaling_initializer(
+                    factor=1.0 * np.sqrt(3), mode='FAN_AVG', uniform=True))
     return logits
 
 def generator(z, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu):
     with tf.variable_scope('generator'):
-        h = slim.repeat(z, n_layers, slim.fully_connected, n_hidden, activation_fn=activation_fn)
-        x = tf.contrib.layers.fully_connected(h, 2, activation_fn=None)
+        h = slim.repeat(z, n_layers, slim.fully_connected, n_hidden,
+                activation_fn=activation_fn,
+                weights_initializer=layers.variance_scaling_initializer(
+                    factor=2.0 * np.sqrt(3), mode='FAN_IN', uniform=True))
+        x = layers.fully_connected(h, 2, activation_fn=None,
+                weights_initializer=layers.variance_scaling_initializer(
+                factor=1.0 * np.sqrt(3), mode='FAN_AVG', uniform=True))
     return x
 
 def build_model(data, z, params):
