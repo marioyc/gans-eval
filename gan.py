@@ -55,9 +55,10 @@ class GAN:
     def _optimization_step(self):
         session = tf.get_default_session()
 
-        data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-        _, summary_d = session.run([self.discriminator_train, self.summary_d_loss],
-                        feed_dict={self.data: data, self.z: z})
+        for i in range(self.discriminator_steps):
+            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
+            _, summary_d = session.run([self.discriminator_train, self.summary_d_loss],
+                            feed_dict={self.data: data, self.z: z})
 
         z = session.run(self.z_batch_sampler)
         _, summary_g = session.run([self.generator_train, self.summary_g_loss],
