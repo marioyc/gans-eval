@@ -6,8 +6,10 @@ from tqdm import tqdm
 from gan import GAN
 from common import build_model, sample_mixture_of_gaussians, discriminator
 
+#TODO: fix WGAN clipping
 class WGAN(GAN):
     def __init__(self, params):
+        self.params = params
         self.z_dim = params['z_dim']
 
         self.data_sampler = sample_mixture_of_gaussians(**params['data'])
