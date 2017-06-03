@@ -48,15 +48,29 @@ class WGAN(GAN):
                 self.discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
                 self.generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
 
+        if not self.gradient_penalty:
+            self.clip_discriminator_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in self.discriminator_vars]
+
+    def _consensus_optimization(self, session):
+        data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
+
+        _, summary_d, summary_g = session.run([self.train_op,
+                                    self.summary_d_loss, self.summary_g_loss],
+                                    feed_dict={self.data: data, self.z: z})
+
+        if not self.gradient_penalty:
+            session.run(self.clip_discriminator_op)
+
+        return summary_d, summary_g
+
     def _alternating_optimization(self, session):
         for j in range(self.discriminator_steps):
             data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
             _, summary_d = session.run([self.discriminator_train_op, self.summary_d_loss],
                             feed_dict={self.data: data, self.z: z})
 
-            #TODO: fix WGAN clipping
             if not self.gradient_penalty:
-                session.run(clip_discriminator_vars_op)
+                session.run(self.clip_discriminator_op)
 
         z = session.run(self.z_batch_sampler)
         _, summary_g = session.run([self.generator_train_op, self.summary_g_loss],
