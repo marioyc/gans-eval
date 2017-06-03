@@ -77,29 +77,3 @@ class WGAN(GAN):
                         feed_dict={self.z: z})
 
         return summary_d, summary_g
-
-if __name__ == '__main__':
-    params = {
-        'batch_size': 256,
-        'z_dim': 2,
-        'data': {
-            'n_mixture': 8,
-            'std': 0.01,
-            'radius': 1,
-        },
-        'generator': {
-            'n_layers': 3,
-            'n_hidden': 512,
-            'activation_fn': tf.nn.relu,
-        },
-        'discriminator': {
-            'n_layers': 3,
-            'n_hidden': 512,
-            'activation_fn': tf.nn.relu,
-        },
-        'gradient_penalty': True,
-        'lambda': 0.1,
-    }
-
-    wgan = WGAN(params)
-    wgan.train(discriminator_steps=5)

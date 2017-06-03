@@ -154,28 +154,3 @@ class GAN:
             self._visualization_2d(i, visualization_batches, batch_size, plot=True)
 
         session.close()
-
-if __name__ == '__main__':
-    params = {
-        'batch_size': 64,
-        'z_dim': 10,
-        'data': {
-            'n_mixture': 8,
-            'std': 0.01,
-            'radius': 1,
-        },
-        'generator': {
-            'n_layers': 3,
-            'n_hidden': 128,
-            'activation_fn': tf.nn.relu,
-        },
-        'discriminator': {
-            'n_layers': 2,
-            'n_hidden': 128,
-            'activation_fn': tf.nn.relu,
-        },
-        'modified_objective': True,
-    }
-
-    gan = GAN(params)
-    gan.train()
