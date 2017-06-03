@@ -100,7 +100,7 @@ class GAN:
 
         return summary_d, summary_g
 
-    def _visualization_2d(self, step, visualization_batches, batch_size, path):
+    def _visualization_2d(self, step, visualization_batches, batch_size, path=None, plot=False):
         session = tf.get_default_session()
         fig, axes = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10,5))
         fig.suptitle(self.name)
@@ -114,11 +114,14 @@ class GAN:
             axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
             axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
 
-        fig.savefig(path + '/{0:06d}.png'.format(step + 1))
+        if path is not None:
+            fig.savefig(path + '/{0:06d}.png'.format(step + 1))
+        if plot:
+            plt.show()
         plt.close(fig)
 
-    def train(self, iterations=100000, batch_size=64,
-            visualization_step=1000, visualization_batches=10, dirname=None):
+    def train(self, iterations=10000, batch_size=64, save_step=1000,
+            visualization_batches=10, dirname=None):
         session = tf.Session()
 
         with session.as_default():
@@ -145,8 +148,10 @@ class GAN:
                 self.writer.add_summary(summary_d, i)
                 self.writer.add_summary(summary_g, i)
 
-                if (i + 1) % visualization_step == 0:
-                    self._visualization_2d(i, visualization_batches, batch_size, output_path)
+                if (i + 1) % save_step == 0:
+                    self._visualization_2d(i, visualization_batches, batch_size, path=output_path)
+
+            self._visualization_2d(i, visualization_batches, batch_size, plot=True)
 
         session.close()
 
