@@ -20,10 +20,10 @@ def discriminator(x, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu, reuse=F
         h = slim.repeat(x, n_layers, slim.fully_connected, n_hidden,
                 activation_fn=activation_fn,
                 weights_initializer=layers.variance_scaling_initializer(
-                    factor=2.0 * np.sqrt(3), mode='FAN_IN', uniform=True))
+                    factor=2.0, mode='FAN_IN', uniform=True))
         logits = layers.fully_connected(h, 1, activation_fn=None,
                     weights_initializer=layers.variance_scaling_initializer(
-                    factor=1.0 * np.sqrt(3), mode='FAN_AVG', uniform=True))
+                        factor=1.0, mode='FAN_AVG', uniform=True))
     return logits
 
 def generator(z, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu):
@@ -31,10 +31,10 @@ def generator(z, n_layers=2, n_hidden=128, activation_fn=tf.nn.relu):
         h = slim.repeat(z, n_layers, slim.fully_connected, n_hidden,
                 activation_fn=activation_fn,
                 weights_initializer=layers.variance_scaling_initializer(
-                    factor=2.0 * np.sqrt(3), mode='FAN_IN', uniform=True))
+                    factor=2.0, mode='FAN_IN', uniform=True))
         x = layers.fully_connected(h, 2, activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(
-                factor=1.0 * np.sqrt(3), mode='FAN_AVG', uniform=True))
+                    factor=1.0, mode='FAN_AVG', uniform=True))
     return x
 
 def build_model(data, z, params):
