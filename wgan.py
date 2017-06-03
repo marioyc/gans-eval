@@ -36,14 +36,15 @@ class WGAN(GAN):
 
         self.generator_loss = -tf.reduce_mean(self.samples_score)
 
-    def _get_optimizers(self):
+        self._create_optimizers()
+
+    def _create_optimizers(self):
         if self.gradient_penalty:
-            discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
-            generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+            self.discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+            self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
         else:
-            discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
-            generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
-        return discriminator_optimizer, generator_optimizer
+            self.discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+            self.generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
 
     def _optimization_step(self):
         session = tf.get_default_session()
