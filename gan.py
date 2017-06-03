@@ -31,11 +31,26 @@ class GAN:
             self.generator_loss = -tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(self.samples_score), logits=self.samples_score))
 
-        self._create_optimizers()
+        self._init_optimization()
 
-        if params['optimization']['algorithm'] == 'consensus':
-            self.name += ' and concensus optimization'
-            gamma = params['optimization']['gamma']
+    def _init_optimization(self):
+        self._create_optimizers()
+        self._create_training_ops()
+        self.summary_d_loss = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
+        self.summary_g_loss = tf.summary.scalar('generator_loss', self.generator_loss)
+
+    def _create_optimizers(self):
+        if self.params['optimization']['algorithm'] == 'consensus':
+            self.optimizer = tf.train.RMSPropOptimizer(1e-4)
+        elif self.params['optimization']['algorithm'] == 'alternating':
+            self.discriminator_optimizer = tf.train.AdamOptimizer()
+            self.generator_optimizer = tf.train.AdamOptimizer()
+
+    def _create_training_ops(self):
+        if self.params['optimization']['algorithm'] == 'consensus':
+            self.name += ' concensus optimization'
+
+            gamma = self.params['optimization']['gamma']
             discriminator_gradients = tf.gradients(self.discriminator_loss, self.discriminator_vars)
             generator_gradients = tf.gradients(self.generator_loss, self.generator_vars)
             gradients = discriminator_gradients + generator_gradients
@@ -44,7 +59,46 @@ class GAN:
             L = 0.5 * sum([tf.reduce_sum(tf.square(g)) for g in gradients])
             Jgrads = tf.gradients(L, gradients)
 
-            self.gradients = [(g + gamma * Lg, v) for g, Lg, v in zip(gradients, Jgrads, variables)]
+            gradients_to_apply = [(g + gamma * Lg, v) for g, Lg, v in zip(gradients, Jgrads, variables)]
+
+            with tf.control_dependencies([g for (g, v) in gradients_to_apply]):
+                self.train_op = self.optimizer.apply_gradients(gradients_to_apply)
+        elif self.params['optimization']['algorithm'] == 'alternating':
+            self.name += ' alternating optimization'
+
+            self.discriminator_steps = self.params['optimization']['discriminator_steps']
+            self.discriminator_train_op = self.discriminator_optimizer.minimize(
+                            self.discriminator_loss, var_list=self.discriminator_vars)
+            self.generator_train_op = self.generator_optimizer.minimize(
+                            self.generator_loss, var_list=self.generator_vars)
+
+    def _optimization_step(self):
+        session = tf.get_default_session()
+
+        if self.params['optimization']['algorithm'] == 'consensus':
+            return self._consensus_optimization(session)
+        elif self.params['optimization']['algorithm'] == 'alternating':
+            return self._alternating_optimization(session)
+
+    def _consensus_optimization(self, session):
+        data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
+
+        _, summary_d, summary_g = session.run([self.train_op,
+                                    self.summary_d_loss, self.summary_g_loss],
+                                    feed_dict={self.data: data, self.z: z})
+        return summary_d, summary_g
+
+    def _alternating_optimization(self, session):
+        for i in range(self.discriminator_steps):
+            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
+            _, summary_d = session.run([self.discriminator_train_op, self.summary_d_loss],
+                            feed_dict={self.data: data, self.z: z})
+
+        z = session.run(self.z_batch_sampler)
+        _, summary_g = session.run([self.generator_train_op, self.summary_g_loss],
+                        feed_dict={self.z: z})
+
+        return summary_d, summary_g
 
     def _visualization_2d(self, step, visualization_batches, batch_size, path):
         session = tf.get_default_session()
@@ -63,51 +117,13 @@ class GAN:
         fig.savefig(path + '/{0:06d}.png'.format(step + 1))
         plt.close(fig)
 
-    def _create_optimizers(self):
-        if self.params['optimization']['algorithm'] == 'consensus':
-            self.optimizer = tf.train.RMSPropOptimizer(1e-4)
-        else:
-            self.discriminator_optimizer = tf.train.AdamOptimizer()
-            self.generator_optimizer = tf.train.AdamOptimizer()
-
-    def _optimization_step(self):
-        session = tf.get_default_session()
-
-        if self.params['optimization']['algorithm'] == 'consensus':
-            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-
-            _, summary_d, summary_g = session.run([self.train,
-                                        self.summary_d_loss, self.summary_g_loss],
-                                        feed_dict={self.data: data, self.z: z})
-        else:
-            for i in range(self.discriminator_steps):
-                data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-                _, summary_d = session.run([self.discriminator_train, self.summary_d_loss],
-                                feed_dict={self.data: data, self.z: z})
-
-            z = session.run(self.z_batch_sampler)
-            _, summary_g = session.run([self.generator_train, self.summary_g_loss],
-                            feed_dict={self.z: z})
-
-        return summary_d, summary_g
-
-    def train(self, iterations=100000, discriminator_steps=1, batch_size=64,
+    def train(self, iterations=100000, batch_size=64,
             visualization_step=1000, visualization_batches=10, dirname=None):
         session = tf.Session()
 
         with session.as_default():
             self.data_batch_sampler = self.data_sampler.sample(batch_size)
             self.z_batch_sampler = self.z_sampler.sample(batch_size)
-
-            if 'optimization' in self.params and self.params['optimization']['algorithm'] == 'consensus':
-                with tf.control_dependencies([g for (g, v) in self.gradients]):
-                    self.train = self.optimizer.apply_gradients(self.gradients)
-            else:
-                self.discriminator_train = self.discriminator_optimizer.minimize(
-                                self.discriminator_loss, var_list=self.discriminator_vars)
-                self.discriminator_steps = discriminator_steps
-                self.generator_train = self.generator_optimizer.minimize(
-                                self.generator_loss, var_list=self.generator_vars)
 
             if dirname is None:
                 dirname = '-'.join(self.name.lower().split())
@@ -116,13 +132,11 @@ class GAN:
 
             if tf.gfile.Exists(logs_path):
                 tf.gfile.DeleteRecursively(logs_path)
+            self.writer = tf.summary.FileWriter(logs_path, session.graph)
+
             if tf.gfile.Exists(output_path):
                 tf.gfile.DeleteRecursively(output_path)
             tf.gfile.MakeDirs(output_path)
-
-            self.summary_d_loss = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
-            self.summary_g_loss = tf.summary.scalar('generator_loss', self.generator_loss)
-            self.writer = tf.summary.FileWriter(logs_path, session.graph)
 
             session.run(tf.global_variables_initializer())
 

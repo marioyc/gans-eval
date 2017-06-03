@@ -6,7 +6,6 @@ from tqdm import tqdm
 from gan import GAN
 from common import build_model, sample_mixture_of_gaussians, discriminator
 
-#TODO: fix WGAN clipping
 class WGAN(GAN):
     def __init__(self, params):
         self.params = params
@@ -36,28 +35,31 @@ class WGAN(GAN):
 
         self.generator_loss = -tf.reduce_mean(self.samples_score)
 
-        self._create_optimizers()
+        self._init_optimization()
 
     def _create_optimizers(self):
-        if self.gradient_penalty:
-            self.discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
-            self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
-        else:
-            self.discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
-            self.generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+        if self.params['optimization']['algorithm'] == 'consensus':
+            self.optimizer = tf.train.RMSPropOptimizer(1e-4)
+        elif self.params['optimization']['algorithm'] == 'alternating':
+            if self.gradient_penalty:
+                self.discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+                self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
+            else:
+                self.discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
+                self.generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=5e-5)
 
-    def _optimization_step(self):
-        session = tf.get_default_session()
-
+    def _alternating_optimization(self, session):
         for j in range(self.discriminator_steps):
             data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-            _, summary_d = session.run([self.discriminator_train, self.summary_d_loss],
+            _, summary_d = session.run([self.discriminator_train_op, self.summary_d_loss],
                             feed_dict={self.data: data, self.z: z})
+
+            #TODO: fix WGAN clipping
             if not self.gradient_penalty:
                 session.run(clip_discriminator_vars_op)
 
         z = session.run(self.z_batch_sampler)
-        _, summary_g = session.run([self.generator_train, self.summary_g_loss],
+        _, summary_g = session.run([self.generator_train_op, self.summary_g_loss],
                         feed_dict={self.z: z})
 
         return summary_d, summary_g
