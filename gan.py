@@ -62,9 +62,11 @@ class GAN:
             variables = self.discriminator_vars + self.generator_vars
 
             L = 0.5 * sum([tf.reduce_sum(tf.square(g)) for g in gradients])
-            Jgrads = tf.gradients(L, variables)
+            Lgrads = tf.gradients(L, variables)
 
-            gradients_to_apply = [(g + gamma * Lg, v) for g, Lg, v in zip(gradients, Jgrads, variables)]
+            gradients_to_apply = [(g + gamma * Lg, v) for g, Lg, v \
+                                    in zip(gradients, Lgrads, variables) \
+                                    if Lg is not None]
 
             with tf.control_dependencies([g for (g, v) in gradients_to_apply]):
                 self.train_op = self.optimizer.apply_gradients(gradients_to_apply)
