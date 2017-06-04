@@ -3,41 +3,48 @@ import tensorflow as tf
 
 from tqdm import tqdm
 
-from common import build_model, sample_mixture_of_gaussians
+from common import sample_mixture_of_gaussians, discriminator, generator
 
 class GAN:
     def __init__(self, params):
         self.params = params
         self.z_dim = params['z_dim']
 
-        self.data_sampler = sample_mixture_of_gaussians(**params['data'])
-        self.z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim))
+        data_sampler = sample_mixture_of_gaussians(**params['data'])
+        z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim))
+        self.batch_size = tf.placeholder(tf.int32, shape=())
 
-        self.data = tf.placeholder(dtype=tf.float32, shape=[None, 2])
-        self.z = tf.placeholder(dtype=tf.float32, shape=[None, self.z_dim])
-        self.data_score, self.samples, self.samples_score, self.discriminator_vars, self.generator_vars = build_model(self.data, self.z, params)
+        self.data = data_sampler.sample(self.batch_size)
+        data_score = discriminator(self.data, **params['discriminator'])
+
+        self.z = z_sampler.sample(self.batch_size)
+        self.samples = generator(self.z, **params['generator'])
+        samples_score = discriminator(self.samples, **params['discriminator'], reuse=True)
+
+        self.discriminator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'discriminator')
+        self.generator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'generator')
 
         self.discriminator_loss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(self.data_score), logits=self.data_score)
-            + tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(self.samples_score), logits=self.samples_score))
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(data_score), logits=data_score)
+            + tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
 
         if params['modified_objective']:
             self.modified_objective = True
             self.name = 'GAN modified objective'
-            self.generator_loss = -tf.reduce_mean(tf.nn.sigmoid(self.samples_score))
+            self.generator_loss = -tf.reduce_mean(tf.nn.sigmoid(samples_score))
         else:
             self.modified_objective = False
             self.name = 'GAN'
             self.generator_loss = -tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(self.samples_score), logits=self.samples_score))
+                tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(samples_score), logits=samples_score))
 
         self._init_optimization()
 
     def _init_optimization(self):
         self._create_optimizers()
         self._create_training_ops()
-        self.summary_d_loss = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
-        self.summary_g_loss = tf.summary.scalar('generator_loss', self.generator_loss)
+        self.summary_d = tf.summary.scalar('discriminator_loss', self.discriminator_loss)
+        self.summary_g = tf.summary.scalar('generator_loss', self.generator_loss)
 
     def _create_optimizers(self):
         if self.params['optimization']['algorithm'] == 'consensus':
@@ -72,31 +79,27 @@ class GAN:
             self.generator_train_op = self.generator_optimizer.minimize(
                             self.generator_loss, var_list=self.generator_vars)
 
-    def _optimization_step(self):
+    def _optimization_step(self, batch_size):
         session = tf.get_default_session()
 
         if self.params['optimization']['algorithm'] == 'consensus':
-            return self._consensus_optimization(session)
+            return self._consensus_optimization(session, batch_size)
         elif self.params['optimization']['algorithm'] == 'alternating':
-            return self._alternating_optimization(session)
+            return self._alternating_optimization(session, batch_size)
 
-    def _consensus_optimization(self, session):
-        data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-
-        _, summary_d, summary_g = session.run([self.train_op,
-                                    self.summary_d_loss, self.summary_g_loss],
-                                    feed_dict={self.data: data, self.z: z})
+    def _consensus_optimization(self, session, batch_size):
+        _, summary_d, summary_g = session.run([self.train_op, self.summary_d,
+                                    self.summary_g],
+                                    feed_dict={self.batch_size: batch_size})
         return summary_d, summary_g
 
-    def _alternating_optimization(self, session):
+    def _alternating_optimization(self, session, batch_size):
         for i in range(self.discriminator_steps):
-            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-            _, summary_d = session.run([self.discriminator_train_op, self.summary_d_loss],
-                            feed_dict={self.data: data, self.z: z})
+            _, summary_d = session.run([self.discriminator_train_op, self.summary_d],
+                            feed_dict={self.batch_size: batch_size})
 
-        z = session.run(self.z_batch_sampler)
-        _, summary_g = session.run([self.generator_train_op, self.summary_g_loss],
-                        feed_dict={self.z: z})
+        _, summary_g = session.run([self.generator_train_op, self.summary_g],
+                        feed_dict={self.batch_size: batch_size})
 
         return summary_d, summary_g
 
@@ -108,9 +111,8 @@ class GAN:
         axes[1].set_title('Data')
 
         for j in range(visualization_batches):
-            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
             x, y = session.run([self.samples, self.data],
-                    feed_dict={self.data: data, self.z: z})
+                                feed_dict={self.batch_size: batch_size})
             axes[0].scatter(x[:, 0], x[:, 1], c='blue', edgecolor='none')
             axes[1].scatter(y[:, 0], y[:, 1], c='green', edgecolor='none')
 
@@ -125,9 +127,6 @@ class GAN:
         session = tf.Session()
 
         with session.as_default():
-            self.data_batch_sampler = self.data_sampler.sample(batch_size)
-            self.z_batch_sampler = self.z_sampler.sample(batch_size)
-
             if dirname is None:
                 dirname = '-'.join(self.name.lower().split())
             logs_path = 'logs/{}'.format(dirname)
@@ -144,7 +143,7 @@ class GAN:
             session.run(tf.global_variables_initializer())
 
             for i in tqdm(range(iterations)):
-                summary_d, summary_g = self._optimization_step()
+                summary_d, summary_g = self._optimization_step(batch_size)
                 self.writer.add_summary(summary_d, i)
                 self.writer.add_summary(summary_g, i)
 

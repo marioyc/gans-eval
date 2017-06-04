@@ -1,24 +1,28 @@
-import matplotlib.pyplot as plt
 import tensorflow as tf
 
-from tqdm import tqdm
-
 from gan import GAN
-from common import build_model, sample_mixture_of_gaussians, discriminator
+from common import sample_mixture_of_gaussians, discriminator, generator
 
 class WGAN(GAN):
     def __init__(self, params):
         self.params = params
         self.z_dim = params['z_dim']
 
-        self.data_sampler = sample_mixture_of_gaussians(**params['data'])
-        self.z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim))
+        data_sampler = sample_mixture_of_gaussians(**params['data'])
+        z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim))
+        self.batch_size = tf.placeholder(tf.int32, shape=())
 
-        self.data = tf.placeholder(dtype=tf.float32, shape=[None, 2])
-        self.z = tf.placeholder(dtype=tf.float32, shape=[None, self.z_dim])
-        self.data_score, self.samples, self.samples_score, self.discriminator_vars, self.generator_vars = build_model(self.data, self.z, params)
+        self.data = data_sampler.sample(self.batch_size)
+        data_score = discriminator(self.data, **params['discriminator'])
 
-        self.discriminator_loss = -tf.reduce_mean(self.data_score - self.samples_score)
+        self.z = z_sampler.sample(self.batch_size)
+        self.samples = generator(self.z, **params['generator'])
+        samples_score = discriminator(self.samples, **params['discriminator'], reuse=True)
+
+        self.discriminator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'discriminator')
+        self.generator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'generator')
+
+        self.discriminator_loss = -tf.reduce_mean(data_score - samples_score)
         if params['gradient_penalty']:
             self.gradient_penalty = True
             self.name = 'WGAN gradient penalty'
@@ -33,7 +37,7 @@ class WGAN(GAN):
             self.gradient_penalty = False
             self.name = 'WGAN'
 
-        self.generator_loss = -tf.reduce_mean(self.samples_score)
+        self.generator_loss = -tf.reduce_mean(samples_score)
 
         self._init_optimization()
 
@@ -51,29 +55,25 @@ class WGAN(GAN):
         if not self.gradient_penalty:
             self.clip_discriminator_op = [var.assign(tf.clip_by_value(var, -0.01, 0.01))  for var in self.discriminator_vars]
 
-    def _consensus_optimization(self, session):
-        data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-
+    def _consensus_optimization(self, session, batch_size):
         _, summary_d, summary_g = session.run([self.train_op,
-                                    self.summary_d_loss, self.summary_g_loss],
-                                    feed_dict={self.data: data, self.z: z})
+                                    self.summary_d, self.summary_g],
+                                    feed_dict={self.batch_size: batch_size})
 
         if not self.gradient_penalty:
             session.run(self.clip_discriminator_op)
 
         return summary_d, summary_g
 
-    def _alternating_optimization(self, session):
+    def _alternating_optimization(self, session, batch_size):
         for j in range(self.discriminator_steps):
-            data, z = session.run([self.data_batch_sampler, self.z_batch_sampler])
-            _, summary_d = session.run([self.discriminator_train_op, self.summary_d_loss],
-                            feed_dict={self.data: data, self.z: z})
+            _, summary_d = session.run([self.discriminator_train_op, self.summary_d],
+                            feed_dict={self.batch_size: batch_size})
 
             if not self.gradient_penalty:
                 session.run(self.clip_discriminator_op)
 
-        z = session.run(self.z_batch_sampler)
-        _, summary_g = session.run([self.generator_train_op, self.summary_g_loss],
-                        feed_dict={self.z: z})
+        _, summary_g = session.run([self.generator_train_op, self.summary_g],
+                        feed_dict={self.batch_size: batch_size})
 
         return summary_d, summary_g
