@@ -25,7 +25,6 @@ def discriminator(x, output_dim=1, n_layers=2, n_hidden=128,
         logits = layers.fully_connected(h, output_dim, activation_fn=None,
                     weights_initializer=layers.variance_scaling_initializer(
                         factor=1.0, mode='FAN_AVG', uniform=True))
-        logits = tf.squeeze(logits, -1)
     return logits
 
 def generator(z, output_dim=2, n_layers=2, n_hidden=128,
