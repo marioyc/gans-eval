@@ -48,8 +48,8 @@ class GAN:
         if self.params['optimization']['algorithm'] == 'consensus':
             self.optimizer = tf.train.RMSPropOptimizer(1e-4)
         elif self.params['optimization']['algorithm'] == 'alternating':
-            self.discriminator_optimizer = tf.train.AdamOptimizer()
-            self.generator_optimizer = tf.train.AdamOptimizer()
+            self.discriminator_optimizer = tf.train.AdamOptimizer(1e-4)
+            self.generator_optimizer = tf.train.AdamOptimizer(1e-4)
 
     def _create_training_ops(self):
         if self.params['optimization']['algorithm'] == 'consensus':
