@@ -9,15 +9,13 @@ class GAN:
     def __init__(self, params):
         self.params = params
         self.z_dim = params['z_dim']
-
-        data_sampler = sample_mixture_of_gaussians(**params['data'])
-        z_sampler = tf.contrib.distributions.Normal(tf.zeros(self.z_dim), tf.ones(self.z_dim))
         self.batch_size = tf.placeholder(tf.int32, shape=())
 
+        data_sampler = sample_mixture_of_gaussians(**params['data'])
         self.data = data_sampler.sample(self.batch_size)
         data_score = discriminator(self.data, **params['discriminator'])
 
-        self.z = z_sampler.sample(self.batch_size)
+        self.z = tf.random_normal([self.batch_size, self.z_dim])
         self.samples = generator(self.z, **params['generator'])
         samples_score = discriminator(self.samples, **params['discriminator'], reuse=True)
 
@@ -64,7 +62,7 @@ class GAN:
             variables = self.discriminator_vars + self.generator_vars
 
             L = 0.5 * sum([tf.reduce_sum(tf.square(g)) for g in gradients])
-            Jgrads = tf.gradients(L, gradients)
+            Jgrads = tf.gradients(L, variables)
 
             gradients_to_apply = [(g + gamma * Lg, v) for g, Lg, v in zip(gradients, Jgrads, variables)]
 
