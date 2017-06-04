@@ -4,7 +4,7 @@ import tensorflow.contrib.layers as layers
 import tensorflow.contrib.slim as slim
 
 def sample_mixture_of_gaussians(n_mixture=8, std=0.01, radius=1):
-    angles = np.linspace(0, 2 * np.pi, n_mixture)
+    angles = np.linspace(0, 2 * np.pi, n_mixture + 1)[:-1]
     x = radius * np.cos(angles)
     y = radius * np.sin(angles)
 
@@ -25,6 +25,7 @@ def discriminator(x, output_dim=1, n_layers=2, n_hidden=128,
         logits = layers.fully_connected(h, output_dim, activation_fn=None,
                     weights_initializer=layers.variance_scaling_initializer(
                         factor=1.0, mode='FAN_AVG', uniform=True))
+        logits = tf.squeeze(logits, -1)
     return logits
 
 def generator(z, output_dim=2, n_layers=2, n_hidden=128,
